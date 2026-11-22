@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.antigravity-usage-indicator"
+          path="/org/gnome/shell/extensions/antigravity-usage-indicator/">
+    <key name="update-interval-seconds" type="i">
+      <range min="60" max="3600"/>
+      <default>300</default>
+      <summary>Automatic refresh interval in seconds</summary>
+    </key>
+    <key name="display-mode" type="s">
+      <choices><choice value="left"/><choice value="used"/></choices>
+      <default>'left'</default>
+      <summary>Show remaining or used quota</summary>
+    </key>
+    <key name="panel-bucket-id" type="s">
+      <default>''</default>
+      <summary>Quota bucket shown in the panel; empty selects the lowest remaining quota</summary>
+    </key>
+    <key name="server-pid" type="i">
+      <range min="0" max="2147483647"/>
+      <default>0</default>
+      <summary>Antigravity server process ID; zero selects automatically</summary>
+    </key>
+  </schema>
+</schemalist>

@@ -9,12 +9,13 @@ interaction. This is an independent, unofficial project, not a Google product.
 
 - Top bar shows remaining or used quota; automatically selects the lowest remaining bucket.
 - Popup lists every quota group/window actually returned by Antigravity, with progress bars,
-  reset countdowns, last successful update time, and the local server PID.
+  reset countdowns when provided, the capture time, and the CLI/server source.
 - Choose a specific quota bucket in the popup, or return to automatic selection.
 - Configurable 60–3600 second polling (default: five minutes) and manual refresh.
 - Failed refreshes preserve the last successful result, explicitly marked **Stale**; missing
   data is never presented as an unused or unlimited allowance.
-- Supports current quota summaries and a clearly labelled legacy model-quota fallback.
+- Supports the Antigravity CLI through its quota status-line hook, without a desktop server.
+- Retains desktop quota summaries and a clearly labelled legacy model-quota fallback.
 
 The extension does **not** assume that any plan has fixed five-hour or weekly limits.
 It does not calculate token balances, pool unrelated model quotas, or invent missing windows.
@@ -24,9 +25,10 @@ store is included. You can select an already-running local server by PID.
 ## Requirements and installation
 
 - GNOME Shell 45–51 (compatibility declared; test on your actual Shell version).
-- Linux with readable `/proc`, Python **3.9+**, and GLib schema tools (`glib-compile-schemas`).
-- Antigravity open, signed in, and with a workspace open so its local server is running.
-  Sandboxed installations may prevent host `/proc` or loopback access and are not guaranteed.
+- Linux, Python **3.9+**, and GLib schema tools (`glib-compile-schemas`).
+- Either a signed-in Antigravity CLI with status-line quota support (setup below), or the
+  desktop app open and signed in with a workspace and readable `/proc`. Desktop sandboxes
+  may prevent host `/proc` or loopback access and are not guaranteed.
 
 On Debian/Ubuntu, install runtime prerequisites with `sudo apt install python3 libglib2.0-bin`.
 No Python packages, API keys, Google OAuth tokens, or Codex CLI files are required.
@@ -47,15 +49,70 @@ gnome-extensions prefs antigravity-usage-indicator@stone.dev
 
 Use the menu's **Panel quota** selector to choose which allowance appears in the top bar.
 **Used** is `1 − remaining`; neither mode estimates tokens or absolute subscription capacity.
-When several Antigravity servers exist, automatic discovery prefers the highest PID with
+Automatic mode first uses a recent CLI capture, then tries desktop servers.
+When several Antigravity servers exist, desktop discovery prefers the highest PID with
 readable quota. The popup identifies the chosen PID. Set **Server process ID** in preferences
-to pin a specific server; changing it clears cached data. PID selection is not permanent
+to pin a specific desktop server and ignore CLI captures; changing it clears displayed data. PID selection is not permanent
 account identity: update it after restarting Antigravity or return to `0` for automatic.
 
-To remove: disable the extension and remove
+To remove: disconnect the CLI hook as described below, disable the extension, and remove
 `~/.local/share/gnome-shell/extensions/antigravity-usage-indicator@stone.dev`.
 
+## Connect Antigravity CLI
+
+Signing in to the CLI alone does not start the desktop quota server the original reader
+expected. This integration instead uses the CLI's
+[status-line quota JSON](https://antigravity.google/docs/cli/statusline).
+
+1. Install/update the extension, open **Settings**, and click **Connect CLI**.
+2. Restart the Antigravity CLI and run a prompt in its interactive session. Keep status-line
+   rendering enabled; project settings or `--hide-statusline` can override the user setting.
+3. Choose **Refresh now** in the indicator. Leave **Server process ID** at `0`.
+
+The button adds only a `statusLine` command to `~/.gemini/settings.json`, preserving other
+settings. It refuses malformed files, symbolic links, and existing custom status lines
+rather than silently replacing them. If you already have a custom status line, manually
+chain the same stdin JSON to the bridge and your renderer, or opt to replace that setting.
+The CLI's `/statusline` command may replace this hook, requiring reconnection.
+
+Equivalent one-time setup from a terminal after installing:
+
+```bash
+python3 ~/.local/share/gnome-shell/extensions/antigravity-usage-indicator@stone.dev/helpers/antigravity_usage.py --install-cli-statusline
+```
+
+For a custom installation directory, run that installed helper's `--install-cli-statusline`
+mode instead. Setup records its absolute path and the current Python interpreter, quoting
+paths safely. If you move the extension or remove that Python installation, remove the
+old bridge setting before reconnecting.
+Older CLI versions without quota status-line data need an update, or use the desktop source.
+
+**Freshness and accounts:** the bridge receives data when the CLI redraws its status line;
+refreshing the indicator cannot ask the CLI for new data. It does not use a login token or
+make remote requests. Each read rejects captures older than ten minutes (or dated in the
+future); at the next indicator refresh, old displayed values are marked **Stale** rather
+than presented as current. The timestamp is the capture time, not the indicator's poll time.
+With several CLI sessions/accounts, the latest capture wins and is labelled **CLI (latest
+session)**. Use a desktop PID to pin a particular desktop account. CLI data provides no
+reset timestamps or window lengths, so those remain unavailable.
+
+To disconnect before uninstalling, remove the bridge's `statusLine` entry from
+`~/.gemini/settings.json` (or restore your previous custom command), restart the CLI, and
+remove `${XDG_CACHE_HOME:-$HOME/.cache}/antigravity-usage-indicator/cli-quota.json`.
+
 ## Data source and privacy
+
+### CLI bridge
+
+The helper accepts the status-line JSON on stdin via `--statusline`, validates
+`quotas.models[model-id].remaining` as a percentage, and stores only model identifiers,
+quota percentages and capture time in the cache file above. The cache directory is private
+(`0700`), the file is private (`0600`), and updates are atomic. Input is size-bounded;
+malformed or quota-less events invalidate the previous capture. Workspace paths, session
+IDs, conversation data and arbitrary JSON fields are never persisted or returned. CLI
+OAuth files and credential databases are not read, imported, stored or refreshed.
+
+### Desktop fallback
 
 The Python helper finds **same-user** Antigravity processes (`language_server*` associated
 with Antigravity, or `agy`) using `/proc`. It reads the process's ephemeral CSRF argument,
@@ -82,7 +139,8 @@ interface; an unsupported response is an error, not simulated quota. No external
 is needed at runtime or to verify this project.
 
 Credentials never appear in helper output, settings, cache files, or diagnostic errors.
-Only normalized quota, an optional plan name, timestamp and PID reach GNOME Shell.
+Only normalized quota, an optional desktop plan name, timestamp and source identifier
+reach GNOME Shell.
 No remote Google endpoints, OAuth refresh flows, credential databases, telemetry, or browser
 profiles are accessed by the extension. The Antigravity app itself may contact its own service.
 HTTP proxies are ignored and redirects are not followed. For the app's local self-signed
@@ -92,8 +150,15 @@ and cancels active readers when disabled or when the server selection changes.
 
 ## Troubleshooting
 
-- **No readable local server:** open a workspace, complete sign-in, and check that Antigravity
-  is running as the same Linux user as GNOME Shell.
+- **No quota source / CLI signed in but no data:** connect the CLI hook in Settings, restart
+  the CLI, run a prompt and refresh. A CLI login alone is not a local desktop server. For
+  desktop mode, open a workspace as the same Linux user as GNOME Shell.
+- **CLI stale:** run a prompt in the connected CLI. Refresh reads its last capture; it cannot
+  force a CLI update. Check that status-line rendering is enabled and not overridden by
+  project settings. No supported quotas means unknown data, not 100% remaining.
+- **Cannot connect the CLI:** preserve any existing custom status line and use manual
+  chaining, or resolve malformed/unwritable `~/.gemini/settings.json`. Do not share that
+  file or raw status-line input; either may contain private configuration.
 - **No accessible listener:** inspect your sandbox or `/proc` restrictions. Do not make
   credentials world-readable or expose the server to the network.
 - **Local quota unavailable:** verify the app's sign-in/connectivity and try **Refresh now**.
@@ -114,8 +179,8 @@ python3 helpers/antigravity_usage.py --pid 12345
 bash scripts/verify.sh
 ```
 
-Runs Python normalization/discovery/security and loopback HTTP tests, JavaScript syntax and
-view tests, **real GJS/Gio subprocess** lifecycle tests, strict schema compilation/settings
+Runs Python CLI setup/hook/cache end-to-end, normalization/discovery/security and loopback
+HTTP tests, JavaScript syntax and view tests, **real GJS/Gio subprocess** lifecycle tests, strict schema compilation/settings
 load, package construction/integrity, and whitespace checks. All tests use synthetic data,
 not personal credentials or a running Antigravity session.
 
@@ -131,8 +196,10 @@ GitHub credentials. Build artifacts stay in `schemas/` and `dist/` and are ignor
 Automated tests cannot authenticate a real subscription or render a GNOME top bar in a
 headless runner. Before publishing, install on the intended GNOME versions and check:
 
-1. With a signed-in Antigravity workspace, compare every displayed group/window and reset
-   time with the app, including zero quota and any weekly caps.
+1. Connect a signed-in CLI, restart it and run a prompt; compare displayed model percentages
+   with its quota display. Check missing quota, stale capture, reconnect and custom-status-line
+   conflicts. With a signed-in desktop workspace, compare every group/window and reset time
+   with the app, including zero quota and any weekly caps.
 2. Change display mode, panel bucket, refresh interval and server PID; check both the menu
    and preferences. An invalid selected bucket falls back to the lowest remaining quota.
 3. Close Antigravity, refresh, verify stale/error states, reopen it, and verify recovery.

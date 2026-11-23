@@ -1,5 +1,6 @@
 import Adw from 'gi://Adw';
 import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
 import Gtk from 'gi://Gtk';
 
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
@@ -26,7 +27,7 @@ export default class AntigravityUsagePreferences extends ExtensionPreferences {
             mode.selected = settings.get_string('display-mode') === 'used' ? 1 : 0;
         });
         group.add(mode);
-        const pid = new Adw.ActionRow({title: 'Server process ID', subtitle: '0 = automatic; set a PID to choose between running accounts'});
+        const pid = new Adw.ActionRow({title: 'Server process ID', subtitle: '0 = CLI capture, then desktop discovery; a PID pins a desktop server'});
         const pidControl = new Gtk.SpinButton({
             adjustment: new Gtk.Adjustment({lower: 0, upper: 2147483647, step_increment: 1}),
             valign: Gtk.Align.CENTER,
@@ -38,9 +39,36 @@ export default class AntigravityUsagePreferences extends ExtensionPreferences {
         group.add(pid);
         page.add(group);
         const source = new Adw.PreferencesGroup({title: 'Data source', description:
-            'Keep Antigravity open and signed in with a workspace. The indicator reads quota from its local server. ' +
+            'CLI: connect the status-line bridge below, restart the CLI and run a prompt. Desktop: keep a signed-in workspace open. ' +
             'No Google OAuth credentials are imported, stored, or refreshed. Select the panel quota in the indicator menu. ' +
-            'Only windows returned by the server are shown; unavailable limits are never assumed to be 100%.'});
+            'Only windows returned by the quota source are shown; unavailable limits are never assumed to be 100%.'});
+        const cli = new Adw.ActionRow({title: 'Antigravity CLI', subtitle:
+            'Adds a quota-only statusLine command to ~/.gemini/settings.json. Existing custom status lines are not replaced.'});
+        const connect = new Gtk.Button({label: 'Connect CLI', valign: Gtk.Align.CENTER});
+        cli.add_suffix(connect);
+        cli.activatable_widget = connect;
+        connect.connect('clicked', () => {
+            connect.sensitive = false;
+            try {
+                const process = Gio.Subprocess.new(['python3',
+                    GLib.build_filenamev([this.path, 'helpers', 'antigravity_usage.py']), '--install-cli-statusline'],
+                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE);
+                process.communicate_utf8_async(null, null, (reader, result) => {
+                    try {
+                        const [, output] = reader.communicate_utf8_finish(result);
+                        const response = JSON.parse(output);
+                        cli.subtitle = response.ok ? response.message : response.error.message;
+                    } catch {
+                        cli.subtitle = 'Cannot connect the CLI. Check Python 3 and see README for manual setup.';
+                    }
+                    connect.sensitive = true;
+                });
+            } catch {
+                cli.subtitle = 'Cannot start setup. Install Python 3 and check extension files.';
+                connect.sensitive = true;
+            }
+        });
+        source.add(cli);
         page.add(source);
         window.add(page);
         window.connect('close-request', () => {

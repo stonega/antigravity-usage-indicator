@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read quota from a same-user Antigravity server without exporting credentials."""
+"""Read Antigravity CLI status-line quota or same-user local server quota."""
 
 import argparse
 import datetime
@@ -12,14 +12,17 @@ import re
 import socket
 import ssl
 import struct
+import sys
 import time
+
+import cli_quota
 
 
 SERVICE = "/exa.language_server_pb.LanguageServerService/"
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 ERRORS = {
-    "not-running": "Open Antigravity, sign in, and open a workspace. No readable local server was found.",
-    "no-listener": "Antigravity is running but its local listening socket is not accessible. Check /proc permissions.",
+    "not-running": "No quota source found. For the CLI, connect the status-line bridge in Settings and run a prompt. For the desktop app, open a signed-in workspace.",
+    "no-listener": "No accessible desktop quota listener. For the CLI, connect the status-line bridge in Settings and run a prompt. For desktop mode, check /proc permissions.",
     "unavailable": "Local quota is unavailable. Check Antigravity sign-in and connectivity, then refresh.",
     "unsupported": "The local server returned no supported quota data. Update Antigravity and try again.",
     "internal": "The local quota reader failed. Check Python 3 and /proc access.",
@@ -229,7 +232,7 @@ def request_json(host, port, tls, method, token, timeout):
         connection.close()
 
 
-def collect(selected_pid=0, proc_root=Path("/proc"), budget=18):
+def collect_server(selected_pid=0, proc_root=Path("/proc"), budget=18):
     processes = discover_processes(proc_root, selected_pid)
     if not processes:
         raise UsageError("not-running")
@@ -270,15 +273,42 @@ def collect(selected_pid=0, proc_root=Path("/proc"), budget=18):
     raise UsageError("unsupported" if received_response else "unavailable")
 
 
+def collect(selected_pid=0, proc_root=Path("/proc"), budget=18):
+    cli_error = None
+    if not selected_pid:
+        try:
+            cached = cli_quota.read_cache()
+            if cached:
+                return cached
+        except cli_quota.CliError as error:
+            cli_error = error
+    try:
+        return collect_server(selected_pid, proc_root, budget)
+    except UsageError:
+        if cli_error:
+            raise cli_error
+        raise
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pid", type=int, default=0, help="Server PID; zero means automatic")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--pid", type=int, default=0, help="Server PID; zero means automatic")
+    modes.add_argument("--statusline", action="store_true", help="Capture quota JSON from CLI stdin")
+    modes.add_argument("--install-cli-statusline", action="store_true", help="Connect via ~/.gemini/settings.json")
     arguments = parser.parse_args()
+    if arguments.statusline:
+        try:
+            print(cli_quota.capture(sys.stdin.buffer))
+        except Exception:
+            print("AG quota unavailable")
+        return
     try:
-        result = collect(arguments.pid)
-    except UsageError as error:
+        result = cli_quota.install(__file__) if arguments.install_cli_statusline else collect(arguments.pid)
+    except (UsageError, cli_quota.CliError) as error:
         code = str(error)
-        result = {"ok": False, "error": {"code": code, "message": ERRORS[code]}}
+        messages = {**ERRORS, **cli_quota.MESSAGES}
+        result = {"ok": False, "error": {"code": code, "message": messages[code]}}
     except Exception:
         result = {"ok": False, "error": {"code": "internal", "message": ERRORS["internal"]}}
     print(json.dumps(result, allow_nan=False))

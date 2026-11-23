@@ -1,0 +1,30 @@
+[
+  [
+    [
+      [
+        [
+          ["gemini-weekly", "Weekly Limit Remaining", "weekly", 0.20886855, null, ["1795858378"], "You have used some of your weekly limit, it will fully refresh in 4 days, 22 hours."],
+          ["gemini-5h", "Five Hour Limit Remaining", "5h", 0.98493, null, ["1795435174"], "You have used some of your 5-hour limit, it will fully refresh in 1 hour, 4 minutes."]
+        ],
+        "Gemini Models",
+        "Models within this group: Gemini 4 Neon, Gemini 4 Hydrogen, Gemini 3.8 Flash"
+      ],
+      [
+        [
+          ["3p-weekly", "Weekly Limit Remaining", "weekly", 0.498844, null, ["1795875702"], "You have used some of your weekly limit, it will fully refresh in 5 days, 3 hours."],
+          ["3p-5h", "Five Hour Limit Remaining", "5h", 1, null, ["1795449299"]]
+        ],
+        "Claude and GPT models",
+        "Models within this group: Claude Opus 5.5, Claude Sonnet 5.5, GPT-OSS 120B"
+      ],
+      [
+        [
+          ["gemini-argon-wtu-weekly", "Gemini 4 Argon Weekly Limit", "weekly", 0, null, ["1795939343"], "You have hit your weekly limit, it refreshes in 5 days, 21 hours. If on a supported paid plan, you can use AI credits in the interim or upgrade to a higher tier."]
+        ],
+        "Gemini 4 Argon",
+        "For paid Pro plans, Argon quota is separate. Higher Argon quota (included as part of the larger Gemini quota bucket) is available on Ultra plans."
+      ]
+    ],
+    "Within each group, models share a weekly limit and a 5-hour limit. Quota is consumed proportionally to the cost of the tokens. Thus, limits will last longer with shorter tasks or using more cost-effective models. The 5-hour limit smooths out aggregate demand to fairly distribute global capacity across all users, while your weekly limit is tied directly to your individual tier."
+  ]
+]

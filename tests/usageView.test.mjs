@@ -30,4 +30,5 @@ assert.equal(metadata['settings-schema'], 'org.gnome.shell.extensions.antigravit
 assert.deepEqual(metadata['shell-version'], ['45', '46', '47', '48', '49', '50', '51']);
 assert.match(sourceLabel({source: 'cli', sourcePid: null, fetchedAt: '2026-11-23T00:00:00Z'}), /^CLI \(latest session\) · Updated /);
 assert.match(sourceLabel({source: 'summary', sourcePid: 123, fetchedAt: '2026-11-23T00:00:00Z'}), /^PID 123 · Updated /);
+assert.match(sourceLabel({source: 'import', sourcePid: null, fetchedAt: '2026-11-23T00:00:00Z'}), /^Imported response \(manual capture\) · Updated /);
 console.log('View and metadata tests passed');

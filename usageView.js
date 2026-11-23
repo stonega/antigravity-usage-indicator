@@ -29,6 +29,7 @@ export function bucketLabel(bucket) {
 }
 
 export function sourceLabel(snapshot) {
-    const source = snapshot.source === 'cli' ? 'CLI (latest session)' : `PID ${snapshot.sourcePid}`;
+    const source = snapshot.source === 'cli' ? 'CLI (latest session)' :
+        snapshot.source === 'import' ? 'Imported response (manual capture)' : `PID ${snapshot.sourcePid}`;
     return `${source} · Updated ${new Date(snapshot.fetchedAt).toLocaleString()}`;
 }

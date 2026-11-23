@@ -1,4 +1,4 @@
-"""Credential-free quota bridge for the Antigravity CLI status-line hook."""
+"""Credential-free CLI quota bridge and private quota-response import cache."""
 
 import datetime
 import json
@@ -11,12 +11,17 @@ import stat
 import sys
 import tempfile
 
+from quota_summary import fraction, normalize_summary, reset_time, sanitized_summary
+
 MAX_BYTES = 2 * 1024 * 1024
 MAX_AGE_SECONDS = 600
 MESSAGES = {
     "cli-stale": "CLI quota is stale. Run a prompt in the connected Antigravity CLI, then refresh.",
     "cli-cache": "CLI quota is unreadable. Reconnect the CLI status-line bridge in Settings, then run a prompt.",
-    "cli-settings": "Cannot connect the CLI. Check ~/.gemini/settings.json is a writable JSON object without an existing custom statusLine. See README for manual setup.",
+    "cli-settings": "Cannot connect the CLI. Check ~/.gemini/antigravity-cli/settings.json is a writable JSON object without an existing custom statusLine. See README for manual setup.",
+    "import-invalid": "No supported quota summary in stdin JSON. Import only the quota response body, not headers, cookies or credentials.",
+    "import-cache": "Imported quota is unreadable. Check the private quota cache permissions and import again.",
+    "import-stale": "Imported quota is stale. Import a fresh quota response, then refresh.",
 }
 
 
@@ -27,6 +32,25 @@ class CliError(Exception):
 def normalize(payload):
     if not isinstance(payload, dict):
         return []
+    if "quota" in payload:
+        quota = payload["quota"]
+        if not isinstance(quota, dict):
+            return []
+        buckets = []
+        for name, status in quota.items():
+            if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,119}", name):
+                continue
+            if not isinstance(status, dict) or status.get("disabled") is True:
+                continue
+            remaining = fraction(status.get("remaining_fraction"))
+            if remaining is None:
+                continue
+            group, separator, suffix = name.rpartition("-")
+            window = suffix if separator and suffix in {"weekly", "5h"} else "unknown"
+            buckets.append({"id": f"cli:{name}", "group": f"CLI quota · {group if window != 'unknown' else name}",
+                            "name": name, "window": window, "remaining": remaining,
+                            "resetAt": reset_time(status.get("reset_time"))})
+        return buckets
     quotas = payload.get("quotas")
     if isinstance(quotas, dict) and quotas.get("available") is False:
         return []
@@ -50,10 +74,10 @@ def normalize(payload):
     return buckets
 
 
-def cache_path():
+def cache_path(source="cli"):
     configured = Path(os.environ.get("XDG_CACHE_HOME", ""))
     root = configured if configured.is_absolute() else Path.home() / ".cache"
-    return root / "antigravity-usage-indicator" / "cli-quota.json"
+    return root / "antigravity-usage-indicator" / f"{source}-quota.json"
 
 
 def atomic_json(path, payload):
@@ -81,17 +105,20 @@ def capture(stream):
         raw = stream.read(MAX_BYTES + 1)
         if len(raw) > MAX_BYTES:
             raise ValueError("Oversized status-line event")
-        buckets = normalize(json.loads(raw))
-    except (ValueError, UnicodeError):
+        event = json.loads(raw)
+        buckets = normalize(event)
+    except (ValueError, UnicodeError, RecursionError):
         buckets = []
     if not buckets:
         path.unlink(missing_ok=True)
         return "AG quota unavailable"
-    payload = {
-        "capturedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "quotas": {"models": {bucket["name"]: {"remaining": bucket["remaining"] * 100}
-                              for bucket in buckets}},
-    }
+    payload = {"capturedAt": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+    if "quota" in event:
+        payload["quota"] = {bucket["name"]: {"remaining_fraction": bucket["remaining"],
+                                               "reset_time": bucket["resetAt"]} for bucket in buckets}
+    else:
+        payload["quotas"] = {"models": {bucket["name"]: {"remaining": bucket["remaining"] * 100}
+                                         for bucket in buckets}}
     atomic_json(path, payload)
     remaining = min(bucket["remaining"] for bucket in buckets)
     percent = round(remaining * 100)
@@ -99,35 +126,56 @@ def capture(stream):
     return f"AG {label}% left"
 
 
-def read_cache():
-    path = cache_path()
+def import_summary(stream):
+    path = cache_path("import")
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    metadata = path.parent.lstat()
+    if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.getuid() or metadata.st_mode & 0o077:
+        raise CliError("import-cache")
+    try:
+        raw = stream.read(MAX_BYTES + 1)
+        buckets = normalize_summary(json.loads(raw)) if len(raw) <= MAX_BYTES else []
+    except (ValueError, UnicodeError, RecursionError):
+        buckets = []
+    if not buckets:
+        path.unlink(missing_ok=True)
+        raise CliError("import-invalid")
+    atomic_json(path, {"capturedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                       "summary": sanitized_summary(buckets)})
+    return {"ok": True, "message": f"Imported {len(buckets)} quota buckets. Refresh the indicator; reimport within ten minutes."}
+
+
+def read_cache(source="cli"):
+    path = cache_path(source)
+    cache_error = "import-cache" if source == "import" else "cli-cache"
+    stale_error = "import-stale" if source == "import" else "cli-stale"
     try:
         with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as cached:
             metadata = os.fstat(cached.fileno())
             if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid() or metadata.st_mode & 0o077:
-                raise CliError("cli-cache")
+                raise CliError(cache_error)
             raw = cached.read(MAX_BYTES + 1)
         if len(raw) > MAX_BYTES:
-            raise CliError("cli-cache")
+            raise CliError(cache_error)
         payload = json.loads(raw)
-        buckets = normalize(payload)
+        buckets = normalize_summary(payload.get("summary")) if source == "import" and isinstance(payload, dict) else normalize(payload)
         captured = payload.get("capturedAt") if isinstance(payload, dict) else None
         timestamp = datetime.datetime.fromisoformat(captured) if isinstance(captured, str) else None
         if not timestamp or timestamp.tzinfo is None or not buckets:
-            raise CliError("cli-cache")
+            raise CliError(cache_error)
         age = (datetime.datetime.now(datetime.timezone.utc) - timestamp).total_seconds()
         if not 0 <= age <= MAX_AGE_SECONDS:
-            raise CliError("cli-stale")
-        return {"ok": True, "source": "cli", "sourcePid": None, "plan": None,
+            raise CliError(stale_error)
+        return {"ok": True, "source": source, "sourcePid": None, "plan": None,
                 "fetchedAt": timestamp.isoformat(), "buckets": buckets}
     except FileNotFoundError:
         return None
-    except (OSError, ValueError, UnicodeError):
-        raise CliError("cli-cache") from None
+    except (OSError, ValueError, UnicodeError, RecursionError):
+        raise CliError(cache_error) from None
 
 
 def install(helper_path):
-    path = Path.home() / ".gemini" / "settings.json"
+    path = Path.home() / ".gemini" / "antigravity-cli" / "settings.json"
     command = shlex.join([sys.executable, str(Path(helper_path).resolve()), "--statusline"])
     setting = {"type": "command", "command": command}
     try:

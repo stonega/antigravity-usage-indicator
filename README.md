@@ -15,6 +15,8 @@ interaction. This is an independent, unofficial project, not a Google product.
 - Failed refreshes preserve the last successful result, explicitly marked **Stale**; missing
   data is never presented as an unused or unlimited allowance.
 - Supports the Antigravity CLI through its quota status-line hook, without a desktop server.
+- Reads the current CLI's weekly/five-hour buckets and reset times, plus positional array summaries.
+- Offers a credential-free stdin import when neither automatic source is available.
 - Retains desktop quota summaries and a clearly labelled legacy model-quota fallback.
 
 The extension does **not** assume that any plan has fixed five-hour or weekly limits.
@@ -26,7 +28,8 @@ store is included. You can select an already-running local server by PID.
 
 - GNOME Shell 45–51 (compatibility declared; test on your actual Shell version).
 - Linux, Python **3.9+**, and GLib schema tools (`glib-compile-schemas`).
-- Either a signed-in Antigravity CLI with status-line quota support (setup below), or the
+- Either a signed-in Antigravity CLI with status-line quota support (setup below), an imported
+  quota response (alternative below), or the
   desktop app open and signed in with a workspace and readable `/proc`. Desktop sandboxes
   may prevent host `/proc` or loopback access and are not guaranteed.
 
@@ -49,10 +52,10 @@ gnome-extensions prefs antigravity-usage-indicator@stone.dev
 
 Use the menu's **Panel quota** selector to choose which allowance appears in the top bar.
 **Used** is `1 − remaining`; neither mode estimates tokens or absolute subscription capacity.
-Automatic mode first uses a recent CLI capture, then tries desktop servers.
+Automatic mode first uses a recent CLI capture, then a recent imported response, then desktop servers.
 When several Antigravity servers exist, desktop discovery prefers the highest PID with
 readable quota. The popup identifies the chosen PID. Set **Server process ID** in preferences
-to pin a specific desktop server and ignore CLI captures; changing it clears displayed data. PID selection is not permanent
+to pin a specific desktop server and ignore CLI/import captures; changing it clears displayed data. PID selection is not permanent
 account identity: update it after restarting Antigravity or return to `0` for automatic.
 
 To remove: disconnect the CLI hook as described below, disable the extension, and remove
@@ -69,7 +72,7 @@ expected. This integration instead uses the CLI's
    rendering enabled; project settings or `--hide-statusline` can override the user setting.
 3. Choose **Refresh now** in the indicator. Leave **Server process ID** at `0`.
 
-The button adds only a `statusLine` command to `~/.gemini/settings.json`, preserving other
+The button adds only a `statusLine` command to `~/.gemini/antigravity-cli/settings.json`, preserving other
 settings. It refuses malformed files, symbolic links, and existing custom status lines
 rather than silently replacing them. If you already have a custom status line, manually
 chain the same stdin JSON to the bridge and your renderer, or opt to replace that setting.
@@ -87,26 +90,68 @@ paths safely. If you move the extension or remove that Python installation, remo
 old bridge setting before reconnecting.
 Older CLI versions without quota status-line data need an update, or use the desktop source.
 
+**Repairing an earlier installation:** click **Connect CLI** again after updating the
+extension. The previous bridge targeted `~/.gemini/settings.json` and expected only
+`quotas.models.*.remaining`; the current CLI documents a different settings location and
+`quota[bucket-id].remaining_fraction`. The installer now uses the correct location, and the
+reader supports both payload formats. It does not edit the old settings file: if it contains
+the extension's old hook, remove only that hook when convenient, preserving unrelated settings.
+
 **Freshness and accounts:** the bridge receives data when the CLI redraws its status line;
 refreshing the indicator cannot ask the CLI for new data. It does not use a login token or
 make remote requests. Each read rejects captures older than ten minutes (or dated in the
 future); at the next indicator refresh, old displayed values are marked **Stale** rather
 than presented as current. The timestamp is the capture time, not the indicator's poll time.
 With several CLI sessions/accounts, the latest capture wins and is labelled **CLI (latest
-session)**. Use a desktop PID to pin a particular desktop account. CLI data provides no
-reset timestamps or window lengths, so those remain unavailable.
+session)**. Use a desktop PID to pin a particular desktop account. Current CLI bucket IDs
+ending in `-weekly` or `-5h` retain that window, and `reset_time` is shown when supplied.
+Legacy per-model percentage payloads have no windows or reset times; those remain unavailable.
 
 To disconnect before uninstalling, remove the bridge's `statusLine` entry from
-`~/.gemini/settings.json` (or restore your previous custom command), restart the CLI, and
+`~/.gemini/antigravity-cli/settings.json` (or restore your previous custom command), restart the CLI, and
 remove `${XDG_CACHE_HOME:-$HOME/.cache}/antigravity-usage-indicator/cli-quota.json`.
+
+## Alternative: import the quota response
+
+If the CLI still emits no quota and no desktop server is available, import the **JSON response
+body** from the quota display you already use. This accepts the nested array format with
+groups such as `Gemini Models`, `Claude and GPT models`, and `Gemini 4 Argon`; it does not
+require a CLI hook, desktop process, API key, or browser credential access.
+
+Save only the response body locally (never a HAR, request headers, cookies, or a copied curl
+command), then pipe it to the installed helper:
+
+```bash
+python3 ~/.local/share/gnome-shell/extensions/antigravity-usage-indicator@stone.dev/helpers/antigravity_usage.py --import-quota < quota-response.json
+```
+
+Click **Refresh now** with **Server process ID** at `0`. The popup labels this source
+**Imported response (manual capture)**. Every returned group, weekly/five-hour window,
+remaining fraction (including zero), and valid Unix-second reset timestamp is retained.
+Object summaries with `groups[].buckets[]` also work. Missing values stay unknown; descriptions,
+messages and unrelated response fields are discarded. This expects valid JSON, not a truncated
+excerpt, JavaScript assignment, anti-XSSI prefix, or length-framed transport stream.
+
+This is a **manual capture, not automatic account synchronization**. The response must be
+fresh when imported: the helper cannot determine its original age. It expires ten minutes
+after import; refresh does not renew it, and an elapsed reset never means automatic refill.
+Import a newly obtained response to update it. A fresh CLI capture takes priority; a selected
+desktop PID bypasses both caches. Invalid imports delete the previous import, not the CLI cache.
+Remove `${XDG_CACHE_HOME:-$HOME/.cache}/antigravity-usage-indicator/import-quota.json` to
+disconnect. No browser profile is inspected and no undocumented remote endpoint is guessed.
 
 ## Data source and privacy
 
 ### CLI bridge
 
-The helper accepts the status-line JSON on stdin via `--statusline`, validates
-`quotas.models[model-id].remaining` as a percentage, and stores only model identifiers,
-quota percentages and capture time in the cache file above. The cache directory is private
+The helper accepts at most 2 MiB of status-line JSON on stdin via `--statusline`, validates
+current `quota[bucket-id].remaining_fraction` (0–1) and `reset_time`, or legacy
+`quotas.models[model-id].remaining` (0–100), and stores only bucket/model identifiers,
+quota values, optional reset times and capture time in the cache file above. Disabled buckets
+and absolute credit balances without a fraction are not presented as percentage allowances.
+The current wire format and settings location are documented in Google's
+[CLI status-line documentation](https://antigravity.google/docs/cli/statusline)
+(checked November 23, 2026). The cache directory is private
 (`0700`), the file is private (`0600`), and updates are atomic. Input is size-bounded;
 malformed or quota-less events invalidate the previous capture. Workspace paths, session
 IDs, conversation data and arbitrary JSON fields are never persisted or returned. CLI
@@ -120,7 +165,9 @@ and correlates its socket file descriptors with `/proc/<pid>/net/tcp{,6}` to loc
 server. It sends read-only JSON POST requests to the process's **loopback sockets only**:
 
 1. `/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary`, using
-   `groups[].buckets[]`: `remainingFraction`, `resetTime`, `displayName`, and `window`.
+   `groups[].buckets[]`: `remainingFraction`, `resetTime`, `displayName`, and `window`, or nested
+   positional groups `[buckets, groupName, description]` with buckets
+   `[id, name, window, fraction, ..., [unixSeconds], ...]` as in the supplied response.
 2. If no usable summary is returned, `GetUserStatus`, using
    `userStatus.cascadeModelConfigData.clientModelConfigs[].quotaInfo`.
 
@@ -157,7 +204,7 @@ and cancels active readers when disabled or when the server selection changes.
   force a CLI update. Check that status-line rendering is enabled and not overridden by
   project settings. No supported quotas means unknown data, not 100% remaining.
 - **Cannot connect the CLI:** preserve any existing custom status line and use manual
-  chaining, or resolve malformed/unwritable `~/.gemini/settings.json`. Do not share that
+  chaining, or resolve malformed/unwritable `~/.gemini/antigravity-cli/settings.json`. Do not share that
   file or raw status-line input; either may contain private configuration.
 - **No accessible listener:** inspect your sandbox or `/proc` restrictions. Do not make
   credentials world-readable or expose the server to the network.
@@ -179,7 +226,8 @@ python3 helpers/antigravity_usage.py --pid 12345
 bash scripts/verify.sh
 ```
 
-Runs Python CLI setup/hook/cache end-to-end, normalization/discovery/security and loopback
+Runs Python current/legacy CLI setup/hook/cache and manual-import end-to-end tests,
+supplied array-response regression tests, normalization/discovery/security and loopback
 HTTP tests, JavaScript syntax and view tests, **real GJS/Gio subprocess** lifecycle tests, strict schema compilation/settings
 load, package construction/integrity, and whitespace checks. All tests use synthetic data,
 not personal credentials or a running Antigravity session.

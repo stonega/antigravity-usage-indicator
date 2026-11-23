@@ -16,6 +16,11 @@ elif mode == 4:
     time.sleep(60)
 elif mode == 5:
     print(json.dumps({"ok": True, "buckets": [{"remaining": 2}]}))
+elif mode == 6:
+    print(json.dumps({"ok": True, "source": "cli", "sourcePid": None,
+        "fetchedAt": "2026-11-23T00:00:00+00:00", "buckets": [
+            {"id": "cli:test", "name": "Test", "group": "CLI model quota", "remaining": 0.42},
+        ]}))
 else:
     print(json.dumps({"ok": True, "buckets": [
         {"id": "test", "name": "Test", "group": "Premium", "remaining": 0},

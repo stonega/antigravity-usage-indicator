@@ -21,7 +21,7 @@ with zipfile.ZipFile(path) as archive:
     assert archive.testzip() is None
     names = set(archive.namelist())
     required = {"metadata.json", "extension.js", "prefs.js", "quotaClient.js", "usageView.js",
-                "helpers/antigravity_usage.py", "schemas/gschemas.compiled", "LICENSE", "README.md"}
+                "helpers/antigravity_usage.py", "helpers/cli_quota.py", "schemas/gschemas.compiled", "LICENSE", "README.md"}
     assert required <= names, required - names
     assert all(not name.startswith((".git/", ".github/", "tests/")) for name in names)
     assert json.loads(archive.read("metadata.json"))["uuid"] == "antigravity-usage-indicator@stone.dev"

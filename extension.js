@@ -9,7 +9,7 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import {QuotaClient} from './quotaClient.js';
-import {bucketLabel, percentLabel, resetLabel, selectBucket} from './usageView.js';
+import {bucketLabel, percentLabel, resetLabel, selectBucket, sourceLabel} from './usageView.js';
 
 const UsageIndicator = GObject.registerClass(
 class UsageIndicator extends PanelMenu.Button {
@@ -107,7 +107,7 @@ class UsageIndicator extends PanelMenu.Button {
             'Reading local Antigravity quota…';
         this._updated.visible = Boolean(snapshot);
         if (snapshot)
-            this._updated.label.text = `PID ${snapshot.sourcePid} · Updated ${new Date(snapshot.fetchedAt).toLocaleString()}`;
+            this._updated.label.text = sourceLabel(snapshot);
         this._status.label.clutter_text.line_wrap = true;
         this._status.label.clutter_text.ellipsize = 0;
         this._status.add_style_class_name('ag-status');
@@ -143,6 +143,8 @@ class UsageIndicator extends PanelMenu.Button {
             choice.connect('activate', () => this._settings.set_string('panel-bucket-id', bucket.id));
             this._selector.menu.addMenuItem(choice);
         }
+        if (snapshot.source === 'cli')
+            this._usageSection.addMenuItem(new PopupMenu.PopupMenuItem('CLI capture; run a prompt to update quota.', {reactive: false}));
         if (snapshot.source === 'legacy')
             this._usageSection.addMenuItem(new PopupMenu.PopupMenuItem('Legacy model quota; weekly limits may not be available.', {reactive: false}));
     }

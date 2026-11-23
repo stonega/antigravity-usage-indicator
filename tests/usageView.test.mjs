@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {bucketLabel, percentLabel, resetLabel, selectBucket} from '../usageView.js';
+import {bucketLabel, percentLabel, resetLabel, selectBucket, sourceLabel} from '../usageView.js';
 
 const buckets = [
     {id: 'short', group: 'Premium', name: 'Session', remaining: 0.8},
@@ -28,4 +28,6 @@ const metadata = JSON.parse(readFileSync(new URL('../metadata.json', import.meta
 assert.equal(metadata.uuid, 'antigravity-usage-indicator@stone.dev');
 assert.equal(metadata['settings-schema'], 'org.gnome.shell.extensions.antigravity-usage-indicator');
 assert.deepEqual(metadata['shell-version'], ['45', '46', '47', '48', '49', '50', '51']);
+assert.match(sourceLabel({source: 'cli', sourcePid: null, fetchedAt: '2026-11-23T00:00:00Z'}), /^CLI \(latest session\) · Updated /);
+assert.match(sourceLabel({source: 'summary', sourcePid: 123, fetchedAt: '2026-11-23T00:00:00Z'}), /^PID 123 · Updated /);
 console.log('View and metadata tests passed');

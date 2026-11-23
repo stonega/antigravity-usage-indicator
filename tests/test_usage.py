@@ -3,12 +3,15 @@ import json
 import os
 from pathlib import Path
 import socket
+import sys
 import tempfile
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import patch
 
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "helpers"))
 
 SPEC = importlib.util.spec_from_file_location(
     "usage", Path(__file__).resolve().parents[1] / "helpers" / "antigravity_usage.py"
@@ -115,6 +118,9 @@ class DiscoveryTests(unittest.TestCase):
 
 class CollectionTests(unittest.TestCase):
     def setUp(self):
+        self.cache = patch.object(usage.cli_quota, "read_cache", return_value=None)
+        self.cache.start()
+        self.addCleanup(self.cache.stop)
         self.process_patch = patch.object(usage, "discover_processes", return_value=[{"pid": 123, "token": "test-token"}])
         self.socket_patch = patch.object(usage, "listening_addresses", return_value=[("127.0.0.1", 50000)])
         self.process_patch.start()
@@ -165,6 +171,9 @@ class CollectionTests(unittest.TestCase):
 
 class HttpTests(unittest.TestCase):
     def setUp(self):
+        self.cache = patch.object(usage.cli_quota, "read_cache", return_value=None)
+        self.cache.start()
+        self.addCleanup(self.cache.stop)
         self.requests = []
         self.status = 200
         self.body = json.dumps(SUMMARY).encode()

@@ -27,3 +27,8 @@ export function resetLabel(resetAt, now = Date.now()) {
 export function bucketLabel(bucket) {
     return `${bucket.group} · ${bucket.name}`;
 }
+
+export function sourceLabel(snapshot) {
+    const source = snapshot.source === 'cli' ? 'CLI (latest session)' : `PID ${snapshot.sourcePid}`;
+    return `${source} · Updated ${new Date(snapshot.fetchedAt).toLocaleString()}`;
+}

@@ -1,6 +1,6 @@
 import GLib from 'gi://GLib';
 import {QuotaClient} from '../quotaClient.js';
-import {percentLabel, selectBucket} from '../usageView.js';
+import {percentLabel, selectBucket, sourceLabel} from '../usageView.js';
 
 function assert(condition, message) {
     if (!condition)
@@ -25,6 +25,9 @@ async function run() {
     const response = await first;
     assert(response.buckets[0].remaining === 0, 'Zero is valid quota');
     assert(percentLabel(selectBucket(response.buckets, '').remaining) === '0% left', 'GJS view module works');
+    const cliResponse = await client.fetch(6);
+    assert(cliResponse.source === 'cli' && cliResponse.sourcePid === null, 'CLI needs no local server PID');
+    assert(sourceLabel(cliResponse).startsWith('CLI (latest session)'), 'CLI source must be identified');
     await rejects(client.fetch(1), 'Sign in');
     await rejects(client.fetch(2), 'invalid data');
     await rejects(client.fetch(3), 'reader failed');

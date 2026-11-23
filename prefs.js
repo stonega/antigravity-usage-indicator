@@ -27,7 +27,7 @@ export default class AntigravityUsagePreferences extends ExtensionPreferences {
             mode.selected = settings.get_string('display-mode') === 'used' ? 1 : 0;
         });
         group.add(mode);
-        const pid = new Adw.ActionRow({title: 'Server process ID', subtitle: '0 = CLI capture, then desktop discovery; a PID pins a desktop server'});
+        const pid = new Adw.ActionRow({title: 'Server process ID', subtitle: '0 = CLI, imported response, then desktop; a PID pins a desktop server'});
         const pidControl = new Gtk.SpinButton({
             adjustment: new Gtk.Adjustment({lower: 0, upper: 2147483647, step_increment: 1}),
             valign: Gtk.Align.CENTER,
@@ -43,7 +43,7 @@ export default class AntigravityUsagePreferences extends ExtensionPreferences {
             'No Google OAuth credentials are imported, stored, or refreshed. Select the panel quota in the indicator menu. ' +
             'Only windows returned by the quota source are shown; unavailable limits are never assumed to be 100%.'});
         const cli = new Adw.ActionRow({title: 'Antigravity CLI', subtitle:
-            'Adds a quota-only statusLine command to ~/.gemini/settings.json. Existing custom status lines are not replaced.'});
+            'Adds a quota-only statusLine command to ~/.gemini/antigravity-cli/settings.json. Existing custom status lines are not replaced.'});
         const connect = new Gtk.Button({label: 'Connect CLI', valign: Gtk.Align.CENTER});
         cli.add_suffix(connect);
         cli.activatable_widget = connect;
@@ -69,6 +69,9 @@ export default class AntigravityUsagePreferences extends ExtensionPreferences {
             }
         });
         source.add(cli);
+        source.add(new Adw.ActionRow({title: 'Alternative: import quota response', subtitle:
+            'No CLI quota or desktop server? Pipe quota response JSON to helpers/antigravity_usage.py --import-quota. ' +
+            'Supports grouped array responses, weekly/5h windows and reset timestamps. See README; captures expire after ten minutes.'}));
         page.add(source);
         window.add(page);
         window.connect('close-request', () => {

@@ -145,6 +145,8 @@ class UsageIndicator extends PanelMenu.Button {
         }
         if (snapshot.source === 'cli')
             this._usageSection.addMenuItem(new PopupMenu.PopupMenuItem('CLI capture; run a prompt to update quota.', {reactive: false}));
+        if (snapshot.source === 'import')
+            this._usageSection.addMenuItem(new PopupMenu.PopupMenuItem('Manual capture; import a fresh response to update quota.', {reactive: false}));
         if (snapshot.source === 'legacy')
             this._usageSection.addMenuItem(new PopupMenu.PopupMenuItem('Legacy model quota; weekly limits may not be available.', {reactive: false}));
     }

@@ -28,6 +28,19 @@ EVENT = {
     "token": "private-token",
 }
 
+CURRENT_EVENT = {
+    "product": "antigravity", "email": "private@example.com", "token": "private-token",
+    "quota": {
+        "gemini-weekly": {"remaining_fraction": 0.20886855, "reset_time": "2026-11-28T10:52:58Z", "reset_in_seconds": 500},
+        "gemini-5h": {"remaining_fraction": 0.98493, "reset_time": "2026-11-23T09:19:34Z"},
+        "3p-weekly": {"remaining_fraction": 0.498844},
+        "3p-5h": {"remaining_fraction": 1},
+        "gemini-argon-wtu-weekly": {"remaining_fraction": 0},
+        "credits": {"remaining_amount": 1000},
+        "disabled-weekly": {"remaining_fraction": 1, "disabled": True},
+    },
+}
+
 
 class CliQuotaTests(unittest.TestCase):
     def setUp(self):
@@ -38,7 +51,7 @@ class CliQuotaTests(unittest.TestCase):
         environment.start()
         self.addCleanup(environment.stop)
         self.helper = HELPERS / "antigravity_usage.py"
-        self.settings = self.root / ".gemini" / "settings.json"
+        self.settings = self.root / ".gemini" / "antigravity-cli" / "settings.json"
 
     def capture(self, payload=EVENT):
         return cli_quota.capture(io.BytesIO(json.dumps(payload).encode()))
@@ -48,7 +61,7 @@ class CliQuotaTests(unittest.TestCase):
                               input=json.dumps(payload) if payload is not None else "",
                               text=True, capture_output=True, timeout=5, check=True)
 
-    def test_official_percentage_schema_and_privacy(self):
+    def test_legacy_percentage_schema_and_privacy(self):
         self.assertEqual(self.capture(), "AG 0% left")
         result = cli_quota.read_cache()
         self.assertEqual([bucket["remaining"] for bucket in result["buckets"]], [0.425, 0])
@@ -62,6 +75,46 @@ class CliQuotaTests(unittest.TestCase):
         for private in ["private-data", "/private/project", "private-session", "private-token", "context_window"]:
             self.assertNotIn(private, cache.read_text())
             self.assertNotIn(private, json.dumps(result))
+
+    def test_current_cli_setup_hook_cache_reader_end_to_end(self):
+        old_settings = self.root / ".gemini" / "settings.json"
+        old_settings.parent.mkdir()
+        old_settings.write_text('{"theme":"preserve-old-settings"}')
+        installed = json.loads(self.run_helper("--install-cli-statusline").stdout)
+        self.assertTrue(installed["ok"])
+        self.assertEqual(json.loads(old_settings.read_text()), {"theme": "preserve-old-settings"})
+        command = json.loads(self.settings.read_text())["statusLine"]["command"]
+        hook = subprocess.run(command, shell=True, input=json.dumps(CURRENT_EVENT), text=True,
+                              capture_output=True, timeout=5, check=True)
+        self.assertEqual(hook.stdout, "AG 0% left\n")
+        result = json.loads(self.run_helper().stdout)
+        self.assertEqual(result["source"], "cli")
+        buckets = result["buckets"]
+        self.assertEqual([bucket["remaining"] for bucket in buckets], [0.20886855, 0.98493, 0.498844, 1, 0])
+        self.assertEqual([bucket["window"] for bucket in buckets], ["weekly", "5h", "weekly", "5h", "weekly"])
+        self.assertEqual(buckets[0]["resetAt"], "2026-11-28T10:52:58+00:00")
+        self.assertIsNone(buckets[2]["resetAt"])
+        self.assertEqual(buckets[0]["group"], buckets[1]["group"])
+        self.assertNotEqual(buckets[2]["group"], buckets[4]["group"])
+        for private in ["private-token", "private@example.com", "remaining_amount", "reset_in_seconds"]:
+            self.assertNotIn(private, cli_quota.cache_path().read_text() + json.dumps(result))
+
+    def test_current_cli_unavailable_fields_and_unknown_windows(self):
+        for value in [None, True, "0.5", -1, 1.01, float("nan"), float("inf"), 10 ** 1000]:
+            self.assertEqual(cli_quota.normalize({"quota": {"gemini-weekly": {"remaining_fraction": value}}}), [])
+        for quota in [None, [], {}, {"test": {"remaining_amount": 100}}, {"test": None},
+                      {"invalid\nlabel": {"remaining_fraction": 1}}]:
+            self.capture()
+            self.assertEqual(self.capture({"quota": quota}), "AG quota unavailable")
+            self.assertIsNone(cli_quota.read_cache())
+        buckets = cli_quota.normalize({"quota": {"new-bucket": {"remaining_fraction": 0, "reset_time": "bad", "reset_in_seconds": 300}}})
+        self.assertEqual(buckets[0]["window"], "unknown")
+        self.assertIsNone(buckets[0]["resetAt"])
+
+    def test_current_schema_takes_priority_over_legacy_fields(self):
+        payload = {**EVENT, **CURRENT_EVENT}
+        self.assertEqual(cli_quota.normalize(payload), cli_quota.normalize(CURRENT_EVENT))
+        self.assertEqual(cli_quota.normalize({**EVENT, "quota": {}}), [])
 
     def test_invalid_or_missing_values_are_never_invented(self):
         for value in [None, True, False, "42", -1, 101, float("nan"), float("inf"), 10 ** 1000]:
@@ -161,7 +214,7 @@ class CliQuotaTests(unittest.TestCase):
                 usage.collect()
 
     def test_setup_preserves_settings_and_is_idempotent(self):
-        self.settings.parent.mkdir()
+        self.settings.parent.mkdir(parents=True)
         original = {"theme": "dark", "security": {"auth": "private-value"}, "unknown": [1, 2]}
         self.settings.write_text(json.dumps(original))
         result = self.run_helper("--install-cli-statusline")
@@ -175,7 +228,7 @@ class CliQuotaTests(unittest.TestCase):
         self.assertEqual(json.loads(self.settings.read_text()), installed)
 
     def test_setup_never_overwrites_custom_or_malformed_settings(self):
-        self.settings.parent.mkdir()
+        self.settings.parent.mkdir(parents=True)
         for raw in ['{"statusLine":{"type":"command","command":"custom"}}',
                     '{"statusLine":false}', 'invalid-json-private', '[]']:
             self.settings.write_text(raw)
@@ -194,7 +247,7 @@ class CliQuotaTests(unittest.TestCase):
     def test_setup_hook_and_reader_end_to_end_with_quoted_path(self):
         installed = self.root / "CLI test's $(not-a-command)"
         installed.mkdir()
-        for name in ["antigravity_usage.py", "cli_quota.py"]:
+        for name in ["antigravity_usage.py", "cli_quota.py", "quota_summary.py"]:
             shutil.copy(HELPERS / name, installed / name)
         self.helper = installed / "antigravity_usage.py"
         self.run_helper("--install-cli-statusline")

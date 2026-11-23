@@ -208,6 +208,13 @@ class HttpTests(unittest.TestCase):
         self.assertIsNone(headers["Authorization"])
         self.assertEqual(body, b"{}")
 
+    def test_positional_response_over_loopback_http(self):
+        self.body = Path(__file__).with_name("fixtures").joinpath("quota-array.json").read_bytes()
+        buckets = usage.normalize_summary(self.request())
+        self.assertEqual([bucket["remaining"] for bucket in buckets], [0.20886855, 0.98493, 0.498844, 1, 0])
+        self.assertEqual([bucket["window"] for bucket in buckets], ["weekly", "5h", "weekly", "5h", "weekly"])
+        self.assertTrue(all(bucket["resetAt"] for bucket in buckets))
+
     def test_collection_end_to_end_from_fixture_proc(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Read Antigravity CLI status-line quota or same-user local server quota."""
+"""Read CLI status-line, imported response, or same-user local server quota."""
 
 import argparse
 import datetime
 import http.client
 import json
-import math
 import os
 from pathlib import Path
 import re
@@ -16,12 +15,13 @@ import sys
 import time
 
 import cli_quota
+from quota_summary import fraction, normalize_summary, reset_time, text
 
 
 SERVICE = "/exa.language_server_pb.LanguageServerService/"
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 ERRORS = {
-    "not-running": "No quota source found. For the CLI, connect the status-line bridge in Settings and run a prompt. For the desktop app, open a signed-in workspace.",
+    "not-running": "No quota source found. Connect the CLI bridge in Settings and run a prompt, import a quota response with --import-quota, or open a signed-in desktop workspace.",
     "no-listener": "No accessible desktop quota listener. For the CLI, connect the status-line bridge in Settings and run a prompt. For desktop mode, check /proc permissions.",
     "unavailable": "Local quota is unavailable. Check Antigravity sign-in and connectivity, then refresh.",
     "unsupported": "The local server returned no supported quota data. Update Antigravity and try again.",
@@ -31,63 +31,6 @@ ERRORS = {
 
 class UsageError(Exception):
     pass
-
-
-def text(value, fallback=""):
-    if not isinstance(value, str):
-        return fallback
-    return " ".join(value.split())[:160] or fallback
-
-
-def fraction(value):
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    if not math.isfinite(value) or not 0 <= value <= 1:
-        return None
-    return float(value)
-
-
-def reset_time(value):
-    try:
-        if not isinstance(value, str):
-            return None
-        parsed = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
-        if parsed.tzinfo is None:
-            return None
-        return parsed.astimezone(datetime.timezone.utc).isoformat()
-    except ValueError:
-        return None
-
-
-def normalize_summary(payload):
-    if not isinstance(payload, dict):
-        return []
-    summary = payload.get("response", payload)
-    if not isinstance(summary, dict) or not isinstance(summary.get("groups"), list):
-        return []
-    buckets = []
-    for group_index, group in enumerate(summary["groups"]):
-        if not isinstance(group, dict) or not isinstance(group.get("buckets"), list):
-            continue
-        group_name = text(group.get("displayName"), f"Quota group {group_index + 1}")
-        for bucket_index, bucket in enumerate(group["buckets"]):
-            if not isinstance(bucket, dict):
-                continue
-            remaining = fraction(bucket.get("remainingFraction"))
-            if remaining is None:
-                continue
-            bucket_id = text(bucket.get("bucketId"), str(bucket_index))
-            window = text(bucket.get("window"), "unknown")
-            name = text(bucket.get("displayName"), window if window != "unknown" else "Quota")
-            buckets.append({
-                "id": f"summary:{group_index}:{bucket_id}",
-                "group": group_name,
-                "name": name,
-                "window": window,
-                "remaining": remaining,
-                "resetAt": reset_time(bucket.get("resetTime")),
-            })
-    return buckets
 
 
 def normalize_legacy(payload):
@@ -282,6 +225,12 @@ def collect(selected_pid=0, proc_root=Path("/proc"), budget=18):
                 return cached
         except cli_quota.CliError as error:
             cli_error = error
+        try:
+            imported = cli_quota.read_cache("import")
+            if imported:
+                return imported
+        except cli_quota.CliError as error:
+            cli_error = cli_error or error
     try:
         return collect_server(selected_pid, proc_root, budget)
     except UsageError:
@@ -295,7 +244,8 @@ def main():
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--pid", type=int, default=0, help="Server PID; zero means automatic")
     modes.add_argument("--statusline", action="store_true", help="Capture quota JSON from CLI stdin")
-    modes.add_argument("--install-cli-statusline", action="store_true", help="Connect via ~/.gemini/settings.json")
+    modes.add_argument("--install-cli-statusline", action="store_true", help="Connect via ~/.gemini/antigravity-cli/settings.json")
+    modes.add_argument("--import-quota", action="store_true", help="Import quota response JSON from stdin (no credentials)")
     arguments = parser.parse_args()
     if arguments.statusline:
         try:
@@ -304,7 +254,10 @@ def main():
             print("AG quota unavailable")
         return
     try:
-        result = cli_quota.install(__file__) if arguments.install_cli_statusline else collect(arguments.pid)
+        if arguments.import_quota:
+            result = cli_quota.import_summary(sys.stdin.buffer)
+        else:
+            result = cli_quota.install(__file__) if arguments.install_cli_statusline else collect(arguments.pid)
     except (UsageError, cli_quota.CliError) as error:
         code = str(error)
         messages = {**ERRORS, **cli_quota.MESSAGES}

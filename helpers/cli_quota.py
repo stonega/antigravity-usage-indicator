@@ -95,6 +95,26 @@ def atomic_json(path, payload):
             temporary.unlink(missing_ok=True)
 
 
+def statusline(buckets):
+    groups = {}
+    for bucket in buckets:
+        window = bucket["window"]
+        group = bucket["name"].rsplit("-", 1)[0] if window != "unknown" else bucket["name"]
+        remaining = bucket["remaining"]
+        percent = f"{remaining * 100:.2f}"
+        if remaining > 0 and percent == "0.00":
+            percent = "<0.01"
+        elif remaining < 1 and percent == "100.00":
+            percent = ">99.99"
+        window_label = "window unknown" if window == "unknown" else window
+        groups.setdefault((group, window == "unknown"), []).append(f"{window_label} {percent}%")
+    parts = []
+    for (group, unknown_window), values in groups.items():
+        label = group if unknown_window else {"gemini": "Gemini", "3p": "Claude/GPT"}.get(group, group)
+        parts.append(f"{label}: {', '.join(values)}")
+    return "AG " + " | ".join(parts) + " left"
+
+
 def capture(stream):
     path = cache_path()
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -120,10 +140,7 @@ def capture(stream):
         payload["quotas"] = {"models": {bucket["name"]: {"remaining": bucket["remaining"] * 100}
                                          for bucket in buckets}}
     atomic_json(path, payload)
-    remaining = min(bucket["remaining"] for bucket in buckets)
-    percent = round(remaining * 100)
-    label = "<1" if 0 < remaining and percent == 0 else ">99" if remaining < 1 and percent == 100 else str(percent)
-    return f"AG {label}% left"
+    return statusline(buckets)
 
 
 def import_summary(stream):

@@ -62,7 +62,8 @@ class CliQuotaTests(unittest.TestCase):
                               text=True, capture_output=True, timeout=5, check=True)
 
     def test_legacy_percentage_schema_and_privacy(self):
-        self.assertEqual(self.capture(), "AG 0% left")
+        self.assertEqual(self.capture(),
+                         "AG gemini-pro: window unknown 42.50% | claude-model: window unknown 0.00% left")
         result = cli_quota.read_cache()
         self.assertEqual([bucket["remaining"] for bucket in result["buckets"]], [0.425, 0])
         self.assertEqual(result["source"], "cli")
@@ -86,7 +87,9 @@ class CliQuotaTests(unittest.TestCase):
         command = json.loads(self.settings.read_text())["statusLine"]["command"]
         hook = subprocess.run(command, shell=True, input=json.dumps(CURRENT_EVENT), text=True,
                               capture_output=True, timeout=5, check=True)
-        self.assertEqual(hook.stdout, "AG 0% left\n")
+        self.assertEqual(hook.stdout,
+                         "AG Gemini: weekly 20.89%, 5h 98.49% | Claude/GPT: weekly 49.88%, 5h 100.00% | "
+                         "gemini-argon-wtu: weekly 0.00% left\n")
         result = json.loads(self.run_helper().stdout)
         self.assertEqual(result["source"], "cli")
         buckets = result["buckets"]
@@ -128,9 +131,46 @@ class CliQuotaTests(unittest.TestCase):
         self.assertEqual(full[0]["remaining"], 1)
 
     def test_hook_does_not_round_partial_quota_to_empty_or_full(self):
-        for remaining, expected in [(0, "0"), (0.1, "<1"), (99.9, ">99"), (100, "100")]:
+        for remaining, expected in [(0, "0.00"), (0.001, "<0.01"), (0.1, "0.10"),
+                                    (99.9, "99.90"), (99.999, ">99.99"), (100, "100.00")]:
             payload = {"quotas": {"models": {"test": {"remaining": remaining}}}}
-            self.assertEqual(self.capture(payload), f"AG {expected}% left")
+            with self.subTest(remaining=remaining):
+                self.assertEqual(self.capture(payload), f"AG test: window unknown {expected}% left")
+
+    def test_screenshot_quotas_show_each_group_and_window_without_integer_rounding(self):
+        payload = json.loads((Path(__file__).parent / "fixtures" / "cli-statusline-quota.json").read_text())
+        result = self.run_helper("--statusline", payload=payload)
+        self.assertEqual(result.stdout,
+                         "AG Gemini: weekly 99.97%, 5h 99.86% | Claude/GPT: weekly 49.88%, 5h 100.00% left\n")
+        self.assertEqual(result.stderr, "")
+        self.assertEqual([bucket["remaining"] for bucket in cli_quota.read_cache()["buckets"]],
+                         [0.9997, 0.498844, 0.9986, 1])
+
+    def test_hook_preserves_unknown_groups_and_missing_windows(self):
+        payload = {"quota": {
+            "new-family-weekly": {"remaining_fraction": 0.123456},
+            "new-bucket": {"remaining_fraction": 0.5},
+            "gemini-5h": {"remaining_fraction": None},
+            "gemini-weekly": {"remaining_fraction": 0.9997},
+        }}
+        self.assertEqual(self.capture(payload),
+                         "AG new-family: weekly 12.35% | new-bucket: window unknown 50.00% | "
+                         "Gemini: weekly 99.97% left")
+
+    def test_current_hook_preserves_near_empty_and_near_full_fractions(self):
+        payload = {"quota": {
+            "gemini-weekly": {"remaining_fraction": 0.000001},
+            "gemini-5h": {"remaining_fraction": 0.999999},
+        }}
+        self.assertEqual(self.capture(payload), "AG Gemini: weekly <0.01%, 5h >99.99% left")
+
+    def test_legacy_model_ids_are_not_interpreted_as_current_group_ids(self):
+        payload = {"quotas": {"models": {
+            "gemini": {"remaining": 42.5},
+            "3p": {"remaining": 50},
+        }}}
+        self.assertEqual(self.capture(payload),
+                         "AG gemini: window unknown 42.50% | 3p: window unknown 50.00% left")
 
     def test_unavailable_event_invalidates_previous_account_quota(self):
         for payload in [{}, {"quotas": {"available": False}}, {"quotas": {"models": {}}},
@@ -254,7 +294,8 @@ class CliQuotaTests(unittest.TestCase):
         command = json.loads(self.settings.read_text())["statusLine"]["command"]
         hook = subprocess.run(command, shell=True, input=json.dumps(EVENT), text=True,
                               capture_output=True, timeout=5, check=True)
-        self.assertEqual(hook.stdout, "AG 0% left\n")
+        self.assertEqual(hook.stdout,
+                         "AG gemini-pro: window unknown 42.50% | claude-model: window unknown 0.00% left\n")
         result = json.loads(self.run_helper().stdout)
         self.assertEqual(result["source"], "cli")
         self.assertEqual(result["buckets"][0]["remaining"], 0.425)

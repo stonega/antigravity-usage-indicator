@@ -90,6 +90,21 @@ paths safely. If you move the extension or remove that Python installation, remo
 old bridge setting before reconnecting.
 Older CLI versions without quota status-line data need an update, or use the desktop source.
 
+The CLI status line shows each model group's remaining quota separately, with explicit
+`weekly` and `5h` windows and two decimal places, rather than a single rounded minimum:
+
+```text
+AG Gemini: weekly 99.97%, 5h 99.86% | Claude/GPT: weekly 49.88%, 5h 100.00% left
+```
+
+These are example values, not live account data. `gemini` is labeled **Gemini** and `3p`
+is labeled **Claude/GPT**; other group IDs (including separate Argon quotas) stay distinct.
+Only supplied, valid quotas appear; missing windows are not filled in. Legacy model quotas
+retain their model IDs and say `window unknown` because that payload does not specify a
+period. Positive values below display precision show `<0.01%`, and partially remaining
+values that would round to full show `>99.99%`, reserving `0.00%` and `100.00%` for exact
+empty and full quotas. This does not change the GNOME top bar's selected-bucket behavior.
+
 **Repairing an earlier installation:** click **Connect CLI** again after updating the
 extension. The previous bridge targeted `~/.gemini/settings.json` and expected only
 `quotas.models.*.remaining`; the current CLI documents a different settings location and

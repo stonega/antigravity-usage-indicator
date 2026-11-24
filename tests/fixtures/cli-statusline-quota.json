@@ -1,0 +1,8 @@
+{
+  "quota": {
+    "gemini-weekly": {"remaining_fraction": 0.9997},
+    "3p-weekly": {"remaining_fraction": 0.498844},
+    "gemini-5h": {"remaining_fraction": 0.9986},
+    "3p-5h": {"remaining_fraction": 1}
+  }
+}

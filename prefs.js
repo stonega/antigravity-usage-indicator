@@ -27,6 +27,32 @@ export default class AntigravityUsagePreferences extends ExtensionPreferences {
             mode.selected = settings.get_string('display-mode') === 'used' ? 1 : 0;
         });
         group.add(mode);
+        const panelWindow = new Adw.ComboRow({title: 'All model groups', subtitle: 'Choose one model/window in the indicator’s Panel quota menu to override this.',
+            model: Gtk.StringList.new(['5h quota (default)', 'All quota windows'])});
+        panelWindow.selected = settings.get_string('panel-window') === 'all' ? 1 : 0;
+        panelWindow.connect('notify::selected', () => {
+            const value = panelWindow.selected === 1 ? 'all' : '5h';
+            if (value !== settings.get_string('panel-window'))
+                settings.set_string('panel-window', value);
+        });
+        const panelWindowChanged = settings.connect('changed::panel-window', () => {
+            panelWindow.selected = settings.get_string('panel-window') === 'all' ? 1 : 0;
+        });
+        group.add(panelWindow);
+        const selection = new Adw.ActionRow({title: 'Panel selection'});
+        const resetSelection = new Gtk.Button({label: 'Show all groups', valign: Gtk.Align.CENTER});
+        resetSelection.connect('clicked', () => settings.set_string('panel-bucket-id', ''));
+        selection.add_suffix(resetSelection);
+        selection.activatable_widget = resetSelection;
+        const updateSelection = () => {
+            const pinned = Boolean(settings.get_string('panel-bucket-id'));
+            selection.subtitle = pinned ? 'A specific model/window is selected in the indicator menu.' :
+                'Showing all model groups for the window setting above.';
+            resetSelection.sensitive = pinned;
+        };
+        const selectionChanged = settings.connect('changed::panel-bucket-id', updateSelection);
+        updateSelection();
+        group.add(selection);
         const pid = new Adw.ActionRow({title: 'Server process ID', subtitle: '0 = CLI, imported response, then desktop; a PID pins a desktop server'});
         const pidControl = new Gtk.SpinButton({
             adjustment: new Gtk.Adjustment({lower: 0, upper: 2147483647, step_increment: 1}),
@@ -76,6 +102,8 @@ export default class AntigravityUsagePreferences extends ExtensionPreferences {
         window.add(page);
         window.connect('close-request', () => {
             settings.disconnect(modeChanged);
+            settings.disconnect(panelWindowChanged);
+            settings.disconnect(selectionChanged);
             return false;
         });
     }

@@ -9,7 +9,7 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import {QuotaClient} from './quotaClient.js';
-import {bucketLabel, percentLabel, resetLabel, selectBucket, sourceLabel} from './usageView.js';
+import {bucketLabel, groupBuckets, panelLabel, percentLabel, resetDetails, sourceLabel, windowLabel} from './usageView.js';
 
 const UsageIndicator = GObject.registerClass(
 class UsageIndicator extends PanelMenu.Button {
@@ -28,10 +28,13 @@ class UsageIndicator extends PanelMenu.Button {
         this.add_child(this._label);
         this._status = new PopupMenu.PopupMenuItem('Reading local Antigravity quota…', {reactive: false});
         this.menu.addMenuItem(this._status);
-        this._updated = new PopupMenu.PopupMenuItem('', {reactive: false});
-        this.menu.addMenuItem(this._updated);
         this._usageSection = new PopupMenu.PopupMenuSection();
         this.menu.addMenuItem(this._usageSection);
+        this._updated = new PopupMenu.PopupMenuItem('', {reactive: false});
+        this._updated.label.add_style_class_name('ag-updated');
+        this._updated.label.clutter_text.line_wrap = true;
+        this._updated.label.clutter_text.ellipsize = 0;
+        this.menu.addMenuItem(this._updated);
         this._selector = new PopupMenu.PopupSubMenuMenuItem('Panel quota');
         this.menu.addMenuItem(this._selector);
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -97,11 +100,11 @@ class UsageIndicator extends PanelMenu.Button {
         const snapshot = this._snapshot;
         const mode = this._settings.get_string('display-mode');
         const selectedId = this._settings.get_string('panel-bucket-id');
-        const selected = selectBucket(snapshot?.buckets ?? [], selectedId);
+        const panelWindow = this._settings.get_string('panel-window');
         const stale = Boolean(this._error && snapshot);
-        this._label.text = selected ? `AG ${percentLabel(selected.remaining, mode)}${stale ? ' ⚠' : ''}` :
+        this._label.text = snapshot ? `${panelLabel(snapshot.buckets, selectedId, panelWindow, mode)}${stale ? ' ⚠' : ''}` :
             this._busy ? 'AG …' : 'AG —';
-        this.accessible_name = selected ? `Antigravity ${bucketLabel(selected)}: ${this._label.text}` : 'Antigravity quota unavailable';
+        this.accessible_name = snapshot ? `Antigravity quota: ${this._label.text}${stale ? ' (stale)' : ''}` : 'Antigravity quota unavailable';
         this._status.label.text = this._error ? `${stale ? 'Stale — ' : ''}${this._error}` : snapshot ?
             snapshot.plan || 'Antigravity subscription quota' :
             'Reading local Antigravity quota…';
@@ -118,30 +121,52 @@ class UsageIndicator extends PanelMenu.Button {
         this._selector.visible = Boolean(snapshot);
         if (!snapshot)
             return;
-        const automatic = new PopupMenu.PopupMenuItem('Automatic (lowest remaining)');
-        automatic.setOrnament(selectedId ? PopupMenu.Ornament.NONE : PopupMenu.Ornament.DOT);
-        automatic.connect('activate', () => this._settings.set_string('panel-bucket-id', ''));
-        this._selector.menu.addMenuItem(automatic);
-        for (const bucket of snapshot.buckets) {
-            const row = new PopupMenu.PopupBaseMenuItem({reactive: false});
-            const content = new St.BoxLayout({vertical: true, x_expand: true, style_class: 'ag-quota'});
-            content.add_child(new St.Label({text: `${bucketLabel(bucket)} — ${percentLabel(bucket.remaining, mode)}`}));
-            const track = new St.Bin({x_expand: true, style_class: 'ag-track'});
-            const fill = new St.Widget({
-                x_align: Clutter.ActorAlign.START,
-                style_class: bucket.remaining <= 0.1 ? 'ag-fill ag-low' : 'ag-fill',
+        for (const [window, label] of [['5h', 'All model groups · 5h'], ['all', 'All model groups · all windows']]) {
+            const automatic = new PopupMenu.PopupMenuItem(label);
+            automatic.setOrnament(!selectedId && panelWindow === window ? PopupMenu.Ornament.DOT : PopupMenu.Ornament.NONE);
+            automatic.connect('activate', () => {
+                this._settings.set_string('panel-window', window);
+                this._settings.set_string('panel-bucket-id', '');
             });
-            track.set_child(fill);
-            const value = mode === 'used' ? 1 - bucket.remaining : bucket.remaining;
-            track.connect('notify::width', () => fill.set_width(track.width * value));
-            content.add_child(track);
-            content.add_child(new St.Label({text: resetLabel(bucket.resetAt), style_class: 'dim-label'}));
-            row.add_child(content);
-            this._usageSection.addMenuItem(row);
-            const choice = new PopupMenu.PopupMenuItem(bucketLabel(bucket));
-            choice.setOrnament(bucket.id === selectedId ? PopupMenu.Ornament.DOT : PopupMenu.Ornament.NONE);
-            choice.connect('activate', () => this._settings.set_string('panel-bucket-id', bucket.id));
-            this._selector.menu.addMenuItem(choice);
+            this._selector.menu.addMenuItem(automatic);
+        }
+        if (selectedId && !snapshot.buckets.some(bucket => bucket.id === selectedId))
+            this._selector.menu.addMenuItem(new PopupMenu.PopupMenuItem('Selected quota unavailable — choose another', {reactive: false}));
+        for (const group of groupBuckets(snapshot.buckets)) {
+            const heading = new PopupMenu.PopupMenuItem(group.name, {reactive: false});
+            heading.label.add_style_class_name('ag-group');
+            heading.label.clutter_text.line_wrap = true;
+            heading.label.clutter_text.ellipsize = 0;
+            this._usageSection.addMenuItem(heading);
+            for (const bucket of group.buckets) {
+                const row = new PopupMenu.PopupBaseMenuItem({reactive: false});
+                const content = new St.BoxLayout({vertical: true, x_expand: true, style_class: 'ag-quota'});
+                const title = new St.BoxLayout({x_expand: true, style_class: 'ag-quota-title'});
+                title.add_child(new St.Label({text: windowLabel(bucket), x_expand: true}));
+                title.add_child(new St.Label({text: percentLabel(bucket.remaining, mode)}));
+                content.add_child(title);
+                const track = new St.Bin({x_expand: true, style_class: 'ag-track'});
+                const fill = new St.Widget({
+                    x_align: Clutter.ActorAlign.START,
+                    style_class: bucket.remaining <= 0.1 ? 'ag-fill ag-low' : 'ag-fill',
+                });
+                track.set_child(fill);
+                const value = mode === 'used' ? 1 - bucket.remaining : bucket.remaining;
+                track.connect('notify::width', () => fill.set_width(track.width * value));
+                content.add_child(track);
+                const reset = new St.Label({text: resetDetails(bucket.resetAt), style_class: 'ag-reset dim-label'});
+                reset.clutter_text.line_wrap = true;
+                reset.clutter_text.ellipsize = 0;
+                content.add_child(reset);
+                row.add_child(content);
+                this._usageSection.addMenuItem(row);
+                const choice = new PopupMenu.PopupMenuItem(bucketLabel(bucket));
+                choice.setOrnament(bucket.id === selectedId ? PopupMenu.Ornament.DOT : PopupMenu.Ornament.NONE);
+                choice.connect('activate', () => this._settings.set_string('panel-bucket-id', bucket.id));
+                this._selector.menu.addMenuItem(choice);
+            }
+            if (!group.buckets.some(bucket => bucket.window === '5h'))
+                this._usageSection.addMenuItem(new PopupMenu.PopupMenuItem('5h quota unavailable from this source', {reactive: false}));
         }
         if (snapshot.source === 'cli')
             this._usageSection.addMenuItem(new PopupMenu.PopupMenuItem('CLI capture; run a prompt to update quota.', {reactive: false}));

@@ -14,7 +14,7 @@ import {bucketLabel, groupBuckets, panelLabel, percentLabel, resetDetails, sourc
 const UsageIndicator = GObject.registerClass(
 class UsageIndicator extends PanelMenu.Button {
     _init(extension) {
-        super._init(0.0, 'Antigravity Usage');
+        super._init(0.5, 'Antigravity Usage');
         this._extension = extension;
         this._settings = extension.getSettings();
         this._client = new QuotaClient(GLib.build_filenamev([extension.path, 'helpers', 'antigravity_usage.py']));

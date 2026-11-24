@@ -51,7 +51,7 @@ class PanelButton extends Actor {
         this._init(...args);
     }
 
-    _init() { this.menu = new Menu(); }
+    _init(menuAlignment) { this._menuAlignment = menuAlignment; this.menu = new Menu(); }
     destroy() { this.destroyed = true; }
 }
 
@@ -133,6 +133,7 @@ const source = readFileSync(new URL('../extension.js', import.meta.url), 'utf8')
 const ExtensionClass = vm.runInNewContext(`${source}\nAntigravityUsageExtension;`, context);
 const extension = new ExtensionClass();
 extension.enable();
+assert.equal(indicator._menuAlignment, 0.5);
 assert.equal(indicator._label.text, 'AG …');
 assert.equal(indicator._refreshItem.sensitive, false);
 await new Promise(resolve => setImmediate(resolve));

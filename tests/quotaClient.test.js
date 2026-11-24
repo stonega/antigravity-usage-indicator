@@ -1,6 +1,6 @@
 import GLib from 'gi://GLib';
 import {QuotaClient} from '../quotaClient.js';
-import {percentLabel, selectBucket, sourceLabel} from '../usageView.js';
+import {panelLabel, sourceLabel} from '../usageView.js';
 
 function assert(condition, message) {
     if (!condition)
@@ -24,7 +24,7 @@ async function run() {
     assert(first === client.fetch(), 'Concurrent requests must coalesce');
     const response = await first;
     assert(response.buckets[0].remaining === 0, 'Zero is valid quota');
-    assert(percentLabel(selectBucket(response.buckets, '').remaining) === '0% left', 'GJS view module works');
+    assert(panelLabel(response.buckets, 'test') === 'AG Premium · Test 0.00% left', 'GJS view module works');
     const cliResponse = await client.fetch(6);
     assert(cliResponse.source === 'cli' && cliResponse.sourcePid === null, 'CLI needs no local server PID');
     assert(sourceLabel(cliResponse).startsWith('CLI (latest session)'), 'CLI source must be identified');

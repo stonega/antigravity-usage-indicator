@@ -14,7 +14,12 @@
     </key>
     <key name="panel-bucket-id" type="s">
       <default>''</default>
-      <summary>Quota bucket shown in the panel; empty selects the lowest remaining quota</summary>
+      <summary>Quota bucket shown in the panel; empty shows all model groups for the selected window</summary>
+    </key>
+    <key name="panel-window" type="s">
+      <choices><choice value="5h"/><choice value="all"/></choices>
+      <default>'5h'</default>
+      <summary>Quota windows shown for all model groups when no specific bucket is selected</summary>
     </key>
     <key name="server-pid" type="i">
       <range min="0" max="2147483647"/>

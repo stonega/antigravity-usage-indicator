@@ -7,10 +7,13 @@ interaction. This is an independent, unofficial project, not a Google product.
 
 ## Features
 
-- Top bar shows remaining or used quota; automatically selects the lowest remaining bucket.
+- Top bar names each model group and its **5h** remaining quota by default (for example,
+  `AG Gemini Models · 5h 98.49% left | Claude and GPT models · 5h 100.00% left`).
+- Percentages retain two decimal places; unrelated groups/windows are never reduced to one number.
 - Popup lists every quota group/window actually returned by Antigravity, with progress bars,
-  reset countdowns when provided, the capture time, and the CLI/server source.
-- Choose a specific quota bucket in the popup, or return to automatic selection.
+  reset countdowns and local reset dates when provided, the capture time, and the CLI/server source.
+- Choose a specific model/window in the popup, or display all groups' 5h quotas or all windows.
+  Panel choices and remaining/used display mode persist across restarts.
 - Configurable 60–3600 second polling (default: five minutes) and manual refresh.
 - Failed refreshes preserve the last successful result, explicitly marked **Stale**; missing
   data is never presented as an unused or unlimited allowance.
@@ -51,6 +54,16 @@ gnome-extensions prefs antigravity-usage-indicator@stone.dev
 ```
 
 Use the menu's **Panel quota** selector to choose which allowance appears in the top bar.
+The default **All model groups · 5h** shows each group's five-hour quota, not the lowest
+percentage across unrelated limits. A group without a reported five-hour window is labelled
+**5h unavailable**; its reported weekly or legacy quotas remain visible in the popup.
+Choose **All model groups · all windows** to show the complete breakdown in the top bar, or
+choose one model/window to keep the label short. If a saved selection disappears from the
+source, the panel says **Selected quota unavailable** rather than substituting another allowance.
+Preferences also offer the all-groups window setting and **Show all groups** to clear a pinned
+selection. These display choices do not change the CLI status line, which still lists every
+reported group/window. The popup always groups all available windows under their model names,
+with green progress bars (amber when remaining quota is at or below 10%).
 **Used** is `1 − remaining`; neither mode estimates tokens or absolute subscription capacity.
 Automatic mode first uses a recent CLI capture, then a recent imported response, then desktop servers.
 When several Antigravity servers exist, desktop discovery prefers the highest PID with
@@ -243,8 +256,10 @@ bash scripts/verify.sh
 
 Runs Python current/legacy CLI setup/hook/cache and manual-import end-to-end tests,
 supplied array-response regression tests, normalization/discovery/security and loopback
-HTTP tests, JavaScript syntax and view tests, **real GJS/Gio subprocess** lifecycle tests, strict schema compilation/settings
-load, package construction/integrity, and whitespace checks. All tests use synthetic data,
+HTTP tests, JavaScript syntax and view tests, mock-actor Shell renderer tests (selection,
+all-group/all-window details, progress values, stale data and lifecycle), **real GJS/Gio subprocess**
+lifecycle tests, strict schema compilation and real GSettings defaults/selection/constraint tests,
+package construction/integrity, and whitespace checks. All tests use synthetic data,
 not personal credentials or a running Antigravity session.
 
 The script uses installed `python3`, `node`, `gjs` and GLib tools. In the application runner,
@@ -263,8 +278,12 @@ headless runner. Before publishing, install on the intended GNOME versions and c
    with its quota display. Check missing quota, stale capture, reconnect and custom-status-line
    conflicts. With a signed-in desktop workspace, compare every group/window and reset time
    with the app, including zero quota and any weekly caps.
-2. Change display mode, panel bucket, refresh interval and server PID; check both the menu
-   and preferences. An invalid selected bucket falls back to the lowest remaining quota.
+2. Change display mode, all-groups window setting, panel bucket, refresh interval and server PID;
+   check both the menu and preferences, including saved choices after restarting the extension.
+   A missing selected bucket must say **Selected quota unavailable**, without substituting
+   another model/window. Groups with no five-hour window must say **5h unavailable** in default
+   panel mode while keeping their reported quotas in the popup. Check label length with all
+   groups/windows and choose a single bucket when space is limited.
 3. Close Antigravity, refresh, verify stale/error states, reopen it, and verify recovery.
 4. Disable/re-enable the extension while refreshing; check there are no orphan readers,
    timers, or Shell errors. Check light/dark themes and UI scaling.

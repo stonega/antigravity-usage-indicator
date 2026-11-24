@@ -1,5 +1,8 @@
 .ag-status { max-width: 32em; }
-.ag-quota { spacing: 6px; min-width: 24em; padding: 6px 0; }
+.ag-group { font-weight: bold; max-width: 32em; padding-top: 8px; }
+.ag-quota { spacing: 6px; min-width: 24em; padding: 4px 0 10px; }
+.ag-quota-title { spacing: 18px; }
+.ag-reset, .ag-updated { font-size: 0.9em; max-width: 36em; }
 .ag-track { height: 6px; border-radius: 3px; background-color: rgba(128, 128, 128, 0.3); }
-.ag-fill { height: 6px; border-radius: 3px; background-color: #62a0ea; }
+.ag-fill { height: 6px; border-radius: 3px; background-color: #2ec27e; }
 .ag-low { background-color: #e5a50a; }
